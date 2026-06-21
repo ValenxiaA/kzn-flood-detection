@@ -1,7 +1,7 @@
 """
 KZN Flood Detection — Results Dashboard
-Loads trained U-Net model weights and displays evaluation results.
-No training happens here — this is a results viewer for already-trained models.
+Loads trained U-Net model weights, displays evaluation results, and runs
+live inference on sample test patches.
 """
 
 import streamlit as st
@@ -10,6 +10,9 @@ import torch.nn as nn
 import numpy as np
 from PIL import Image
 import os
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 
 # =====================================================================
 # Page setup
@@ -24,12 +27,12 @@ st.title("🌊 KwaZulu-Natal Flood Detection — Results Dashboard")
 st.markdown(
     """
     **Multi-source deep learning flood detection for the April 2022 KwaZulu-Natal flood event.**
-    This dashboard loads the trained U-Net model weights and displays evaluation results.
-    For the full data acquisition, preprocessing, and training pipeline, see the notebook links below.
+    This dashboard loads the trained U-Net model weights, displays evaluation results,
+    and runs live inference on real sample test patches.
     """
 )
 
-GITHUB_REPO = "https://github.com/YOUR_USERNAME/YOUR_REPO_NAME"  # <-- update this
+GITHUB_REPO = "https://github.com/ValenxiaA/kzn-flood-detection"
 
 st.markdown(f"📂 [View full project on GitHub]({GITHUB_REPO})")
 
@@ -90,7 +93,6 @@ def load_models():
     optical_path = "models/optical_unet_4tile_best.pt"
 
     status = {"fusion": False, "optical": False}
-
     fusion_model = None
     optical_model = None
 
@@ -130,6 +132,111 @@ with col2:
 st.divider()
 
 # =====================================================================
+# LIVE INFERENCE — run the actual model on a real sample patch
+# =====================================================================
+st.header("🧠 Run the Model Live")
+
+st.markdown(
+    "Select one of the real test patches below and run it through the trained "
+    "fusion and optical-only models. This performs genuine inference using the "
+    "loaded model weights — not a pre-saved image."
+)
+
+SAMPLE_DIR = "sample_patches/"
+OPTICAL_CHANNELS = list(range(9))
+
+def find_sample_patches(directory):
+    """Find matching X_/y_ patch pairs in the sample directory."""
+    if not os.path.exists(directory):
+        return []
+    files = os.listdir(directory)
+    x_files = sorted([f for f in files if f.startswith("X_") and f.endswith(".npy")])
+    pairs = []
+    for xf in x_files:
+        suffix = xf[len("X_"):]
+        yf = "y_" + suffix
+        if yf in files:
+            pairs.append((xf, yf))
+    return pairs
+
+sample_pairs = find_sample_patches(SAMPLE_DIR)
+
+if not sample_pairs:
+    st.warning(
+        f"No sample patches found in `{SAMPLE_DIR}`. "
+        "Upload a few matching X_*.npy / y_*.npy pairs to this folder to enable live inference."
+    )
+else:
+    patch_labels = [f"Sample {i+1} ({xf})" for i, (xf, yf) in enumerate(sample_pairs)]
+    choice_idx = st.selectbox("Choose a test patch:", range(len(sample_pairs)), format_func=lambda i: patch_labels[i])
+    xf, yf = sample_pairs[choice_idx]
+
+    X = np.load(os.path.join(SAMPLE_DIR, xf)).astype(np.float32)
+    y = np.load(os.path.join(SAMPLE_DIR, yf)).astype(np.float32)
+    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+
+    flood_pixels = int((y == 1).sum())
+    total_pixels = y.size
+    st.caption(f"Ground truth: {flood_pixels:,} / {total_pixels:,} pixels flooded "
+               f"({100*flood_pixels/total_pixels:.1f}%)")
+
+    run_button = st.button("▶ Run inference on this patch", type="primary")
+
+    if run_button:
+        with st.spinner("Running inference..."):
+            # Fusion model — all 12 channels
+            fusion_pred = None
+            if model_status["fusion"]:
+                X_tensor = torch.from_numpy(X).unsqueeze(0)
+                with torch.no_grad():
+                    logits = fusion_model(X_tensor)
+                    fusion_pred = torch.sigmoid(logits).numpy()[0, 0]
+
+            # Optical model — channels 0-8 only
+            optical_pred = None
+            if model_status["optical"]:
+                X_opt = X[OPTICAL_CHANNELS]
+                X_opt_tensor = torch.from_numpy(X_opt).unsqueeze(0)
+                with torch.no_grad():
+                    logits = optical_model(X_opt_tensor)
+                    optical_pred = torch.sigmoid(logits).numpy()[0, 0]
+
+        st.success("Inference complete.")
+
+        def plot_mask(mask, title, cmap_color="#4A1486"):
+            fig, ax = plt.subplots(figsize=(4, 4))
+            cmap = mcolors.ListedColormap(["#D9D9D9", cmap_color])
+            ax.imshow(mask, cmap=cmap, vmin=0, vmax=1)
+            ax.set_title(title, fontsize=10)
+            ax.axis("off")
+            return fig
+
+        rcol1, rcol2, rcol3 = st.columns(3)
+
+        with rcol1:
+            st.pyplot(plot_mask(y, "Ground Truth"))
+
+        with rcol2:
+            if fusion_pred is not None:
+                fusion_binary = (fusion_pred > 0.5).astype(np.uint8)
+                st.pyplot(plot_mask(fusion_binary, "Fusion Prediction"))
+                fusion_flood_pct = 100 * fusion_binary.sum() / fusion_binary.size
+                st.caption(f"Predicted flood: {fusion_flood_pct:.1f}% of patch")
+            else:
+                st.info("Fusion model not loaded.")
+
+        with rcol3:
+            if optical_pred is not None:
+                optical_binary = (optical_pred > 0.5).astype(np.uint8)
+                st.pyplot(plot_mask(optical_binary, "Optical-only Prediction"))
+                optical_flood_pct = 100 * optical_binary.sum() / optical_binary.size
+                st.caption(f"Predicted flood: {optical_flood_pct:.1f}% of patch")
+            else:
+                st.info("Optical model not loaded.")
+
+st.divider()
+
+# =====================================================================
 # Results — Quantitative metrics
 # =====================================================================
 st.header("📊 Test Set Performance")
@@ -144,8 +251,6 @@ metrics = {
     "Fusion (12-channel)": [0.8443, 0.8378, 0.9900],
     "Optical-only (9-channel)": [0.8210, 0.8134, 0.9852],
 }
-
-import pandas as pd
 df = pd.DataFrame(metrics)
 st.dataframe(df, use_container_width=True, hide_index=True)
 
@@ -204,7 +309,7 @@ st.divider()
 # =====================================================================
 # Links to full pipeline notebooks
 # =====================================================================
-st.header("📓 Full Pipeline — Run the Notebooks Yourself")
+st.header("📓 Full Pipeline")
 
 st.markdown(
     """
@@ -227,7 +332,7 @@ notebooks = [
     ("B7 — Results Figures", "B7_final_chapter4_figures_final.ipynb"),
 ]
 
-BINDER_BASE = f"https://mybinder.org/v2/gh/YOUR_USERNAME/YOUR_REPO_NAME/HEAD?filepath="  # <-- update this
+BINDER_BASE = "https://mybinder.org/v2/gh/ValenxiaA/kzn-flood-detection/HEAD?filepath="
 
 for name, filename in notebooks:
     gh_link = f"{GITHUB_REPO}/blob/main/notebooks/{filename}"

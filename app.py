@@ -29,7 +29,7 @@ st.markdown(
     """
 )
 
-GITHUB_REPO = "https://github.com/ValenxiaA/kzn-flood-detection"
+GITHUB_REPO = "https://github.com/YOUR_USERNAME/YOUR_REPO_NAME"  # <-- update this
 
 st.markdown(f"📂 [View full project on GitHub]({GITHUB_REPO})")
 
@@ -218,16 +218,16 @@ st.markdown(
 )
 
 notebooks = [
-    ("B1 — Study Area Definition", "B1_study_area_definition.ipynb"),
-    ("B2 — Data Acquisition", "B2_acquisition.ipynb"),
-    ("B3 — Mosaic Assembly", "B3_mosaic.ipynb"),
-    ("B4 — Stack Assembly", "B4_stack_assembly.ipynb"),
-    ("B5 — Patch Extraction", "B5_patch_extraction.ipynb"),
-    ("B6 — Model Training (requires GPU)", "B6_model_training.ipynb"),
-    ("B7 — Results Figures", "B7_final_chapter4_figures.ipynb"),
+    ("B1 — Study Area Definition", "B1_study_area_definition_final.ipynb"),
+    ("B2 — Data Acquisition", "B2_acquisition_final.ipynb"),
+    ("B3 — Mosaic Assembly", "B3_mosaic_final.ipynb"),
+    ("B4 — Stack Assembly", "B4_stack_assembly_final.ipynb"),
+    ("B5 — Patch Extraction", "B5_patch_extraction_final.ipynb"),
+    ("B6 — Model Training (requires GPU)", "B6_model_trainingfinal.ipynb"),
+    ("B7 — Results Figures", "B7_final_chapter4_figures_final.ipynb"),
 ]
 
-BINDER_BASE = f"https://mybinder.org/v2/gh/ValenxiaA/kzn-flood-detection/HEAD?filepath="
+BINDER_BASE = f"https://mybinder.org/v2/gh/YOUR_USERNAME/YOUR_REPO_NAME/HEAD?filepath="  # <-- update this
 
 for name, filename in notebooks:
     gh_link = f"{GITHUB_REPO}/blob/main/notebooks/{filename}"

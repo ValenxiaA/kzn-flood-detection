@@ -1,6 +1,10 @@
 streamlit
 torch
+torchvision
 numpy
 pandas
-Pillow
 matplotlib
+scikit-learn
+Pillow
+rasterio
+scipy

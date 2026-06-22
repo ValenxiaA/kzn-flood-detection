@@ -24,6 +24,182 @@ st.set_page_config(
     layout="wide"
 )
 
+
+# =====================================================================
+# Visual styling helpers
+# =====================================================================
+st.markdown("""
+<style>
+    :root {
+        --primary: #0F5E8C;
+        --primary-soft: #E7F3FA;
+        --teal: #0E8F7E;
+        --teal-soft: #E7F7F3;
+        --amber: #B56B11;
+        --amber-soft: #FFF4E2;
+        --danger: #B42318;
+        --ink: #14213D;
+        --muted: #5C667A;
+        --line: #E6EAF0;
+        --panel: #FFFFFF;
+        --page: #F6F8FB;
+    }
+
+    .stApp { background: linear-gradient(180deg, #F6F8FB 0%, #FFFFFF 42%); }
+
+    /* Keep the app from jumping between very wide and narrow layouts */
+    .block-container {
+        max-width: 1180px !important;
+        padding-top: 1.35rem !important;
+        padding-bottom: 3rem !important;
+    }
+
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #0B2545 0%, #12385D 100%);
+    }
+    section[data-testid="stSidebar"] * { color: #FFFFFF !important; }
+    section[data-testid="stSidebar"] .stRadio label { color: #FFFFFF !important; }
+
+    h1, h2, h3 { color: var(--ink); letter-spacing: -0.02em; }
+    p, li, .stMarkdown { color: #243044; }
+    .stTabs [data-baseweb="tab-list"] { gap: 0.5rem; }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 999px;
+        padding: 0.5rem 1rem;
+        background: #EEF4F8;
+    }
+
+    div[data-testid="stMetric"] {
+        background: #FFFFFF;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 18px 18px 14px 18px;
+        box-shadow: 0 8px 24px rgba(20, 33, 61, 0.06);
+    }
+    div[data-testid="stMetricLabel"] p {
+        color: var(--muted) !important;
+        font-size: 0.86rem !important;
+    }
+    div[data-testid="stMetricValue"] {
+        color: var(--ink) !important;
+        font-size: 1.65rem !important;
+        font-weight: 750 !important;
+    }
+
+    .hero-card {
+        background: linear-gradient(135deg, #0B2545 0%, #0F5E8C 55%, #0E8F7E 100%);
+        color: #FFFFFF;
+        padding: 2.0rem 2.1rem;
+        border-radius: 28px;
+        box-shadow: 0 18px 45px rgba(15, 94, 140, 0.22);
+        margin-bottom: 1.3rem;
+    }
+    .hero-card h1 { color: #FFFFFF; margin: 0 0 0.6rem 0; font-size: clamp(2rem, 4vw, 3.2rem); }
+    .hero-card p { color: rgba(255,255,255,0.88); max-width: 850px; margin-bottom: 0; }
+    .chip-row { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-top: 1.1rem; }
+    .chip {
+        background: rgba(255,255,255,0.16);
+        border: 1px solid rgba(255,255,255,0.25);
+        color: #FFFFFF;
+        padding: 0.35rem 0.7rem;
+        border-radius: 999px;
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+
+    .soft-card {
+        background: #FFFFFF;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 1.2rem 1.25rem;
+        box-shadow: 0 10px 26px rgba(20, 33, 61, 0.06);
+        margin-bottom: 1rem;
+    }
+    .metric-panel {
+        background: #FFFFFF;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 1.15rem;
+        box-shadow: 0 10px 26px rgba(20, 33, 61, 0.06);
+        height: 100%;
+    }
+    .metric-panel h3 { margin: 0 0 0.2rem 0; font-size: 1.05rem; }
+    .metric-panel .sub { color: var(--muted); font-size: 0.84rem; margin-bottom: 0.9rem; }
+    .metric-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.75rem; }
+    .mini-metric {
+        background: #F8FAFC;
+        border: 1px solid #E9EEF5;
+        border-radius: 16px;
+        padding: 0.85rem;
+    }
+    .mini-label { color: var(--muted); font-size: 0.78rem; font-weight: 650; margin-bottom: 0.2rem; }
+    .mini-value { color: var(--ink); font-size: 1.35rem; font-weight: 800; }
+    .interpretation {
+        margin-top: 0.9rem;
+        background: var(--teal-soft);
+        border-left: 4px solid var(--teal);
+        padding: 0.75rem 0.85rem;
+        border-radius: 12px;
+        color: #12433E;
+        font-size: 0.88rem;
+    }
+    .notice {
+        background: #F8FAFC;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 1rem 1.1rem;
+        margin: 0.7rem 0 1rem 0;
+    }
+    .notice strong { color: var(--ink); }
+
+    @media (max-width: 760px) {
+        .hero-card { padding: 1.4rem; border-radius: 20px; }
+        .metric-grid { grid-template-columns: 1fr; }
+        .block-container { padding-left: 1rem !important; padding-right: 1rem !important; }
+    }
+</style>
+""", unsafe_allow_html=True)
+
+
+def hero(title: str, subtitle: str, chips=None):
+    chips = chips or []
+    chip_html = "".join([f"<span class='chip'>{c}</span>" for c in chips])
+    st.markdown(
+        f"""
+        <div class='hero-card'>
+            <h1>{title}</h1>
+            <p>{subtitle}</p>
+            <div class='chip-row'>{chip_html}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def province_metric_panel(name: str, rmse: str, r2: str, corr: str, note: str):
+    st.markdown(
+        f"""
+        <div class='metric-panel'>
+            <h3>{name}</h3>
+            <div class='sub'>Real thesis test-set drought performance</div>
+            <div class='metric-grid'>
+                <div class='mini-metric'><div class='mini-label'>RMSE</div><div class='mini-value'>{rmse}</div></div>
+                <div class='mini-metric'><div class='mini-label'>R²</div><div class='mini-value'>{r2}</div></div>
+                <div class='mini-metric'><div class='mini-label'>Pearson r</div><div class='mini-value'>{corr}</div></div>
+            </div>
+            <div class='interpretation'>{note}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def friendly_status(label: str, ok: bool, detail: str):
+    if ok:
+        st.success(f"✅ {label} loaded")
+    else:
+        st.info(f"ℹ️ {label} not available yet — {detail}")
+
 # ── Sidebar ──────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### Navigation")
@@ -226,15 +402,15 @@ if page == "🌊  Flood Detection":
     with c1:
         if flood_status["fusion"]:
             n = sum(p.numel() for p in fusion_model.parameters())
-            st.success(f"✅ Fusion model (12-ch) — {n:,} parameters")
+            st.success(f"✅ Fusion model (12-ch) loaded — {n:,} parameters")
         else:
-            st.error("❌ Fusion model not found at models/fusion_unet_4tile_best.pt")
+            st.info("ℹ️ Fusion model not available yet — add models/fusion_unet_4tile_best.pt to enable live inference.")
     with c2:
         if flood_status["optical"]:
             n = sum(p.numel() for p in optical_model.parameters())
-            st.success(f"✅ Optical model (9-ch) — {n:,} parameters")
+            st.success(f"✅ Optical model (9-ch) loaded — {n:,} parameters")
         else:
-            st.error("❌ Optical model not found at models/optical_unet_4tile_best.pt")
+            st.info("ℹ️ Optical model not available yet — add models/optical_unet_4tile_best.pt to enable live inference.")
 
     st.divider()
 
@@ -382,23 +558,15 @@ elif page == "🌵  Drought Prediction":
         drought_models, drought_status = load_drought_models()
         drought_data = load_drought_data()
 
-    c1, c2 = st.columns(2)
+    st.markdown("<div class='notice'><strong>App status:</strong> The performance matrix below will always show your thesis results. Interactive prediction only becomes active when the model files and drought CSVs are present in the GitHub/Streamlit folders.</div>", unsafe_allow_html=True)
+    c1, c2, c3 = st.columns(3)
     with c1:
-        if drought_status['KZN']:
-            st.success("✅ KZN LSTM loaded")
-        else:
-            st.error("❌ KZN LSTM not found at models/lstm_KZN.pth")
+        friendly_status("KZN LSTM", drought_status['KZN'], "add models/lstm_KZN.pth")
     with c2:
-        if drought_status['NC']:
-            st.success("✅ Northern Cape LSTM loaded")
-        else:
-            st.error("❌ NC LSTM not found at models/lstm_NC.pth")
-
-    data_ok = drought_data.get('KZN') is not None or drought_data.get('NC') is not None
-    if data_ok:
-        st.success("✅ Drought CSV data loaded from data/drought/")
-    else:
-        st.warning("CSV data not found in data/drought/ — upload the 8 CSV files to enable interactive features.")
+        friendly_status("Northern Cape LSTM", drought_status['NC'], "add models/lstm_NC.pth")
+    with c3:
+        data_ok = drought_data.get('KZN') is not None or drought_data.get('NC') is not None
+        friendly_status("Drought CSV data", data_ok, "add spi3 and ndvi_anomaly CSVs to data/drought/")
 
     st.divider()
 
@@ -429,19 +597,29 @@ patience 15, ReduceLROnPlateau scheduler. Chronological split 70 / 15 / 15.
     st.divider()
 
     # ── Metrics ────────────────────────────────────────────────────
-    st.subheader("📊 Test Set Performance")
+    st.subheader("📊 Drought Performance Matrix")
+    st.markdown(
+        "These are the real thesis values, so they display even when the trained `.pth` files or CSV data are not available on Streamlit."
+    )
     col_kzn, col_nc = st.columns(2)
     with col_kzn:
-        st.markdown("**KwaZulu-Natal**")
-        st.metric("RMSE", "—")
-        st.metric("R²", "—")
-        st.metric("Pearson r", "—")
+        province_metric_panel(
+            "KwaZulu-Natal",
+            "0.800",
+            "0.132",
+            "0.525",
+            "Moderate correlation, but weaker explained variance. This suggests the KZN drought signal is more variable and harder for the LSTM to predict."
+        )
     with col_nc:
-        st.markdown("**Northern Cape**")
-        st.metric("RMSE", "—")
-        st.metric("R²", "—")
-        st.metric("Pearson r", "—")
-    st.caption("Replace the — values with your notebook results once available.")
+        province_metric_panel(
+            "Northern Cape",
+            "0.829",
+            "0.389",
+            "0.750",
+            "Stronger correlation and better explained variance. The Northern Cape drought signal is more consistent and easier for the LSTM to track."
+        )
+
+    st.caption("RMSE = prediction error magnitude. R² = explained variance. Pearson r = strength of predicted-vs-observed SPI-3 relationship.")
 
     st.divider()
 
@@ -477,7 +655,7 @@ patience 15, ReduceLROnPlateau scheduler. Chronological split 70 / 15 / 15.
             "Select prediction target month:",
             min_value=min_date,
             max_value=max_date,
-            value=pd.Timestamp('2016-04-01').to_pydatetime(),  # El Niño peak area
+            value=min(max(pd.Timestamp('2016-04-01'), pd.Timestamp(min_date)), pd.Timestamp(max_date)).to_pydatetime(),
             format="MMM YYYY"
         )
 
@@ -650,13 +828,11 @@ patience 15, ReduceLROnPlateau scheduler. Chronological split 70 / 15 / 15.
 # PIPELINE PAGE
 # =====================================================================
 elif page == "📓  Pipeline Notebooks":
-    st.title("📓 Pipeline Notebooks")
-    st.markdown(
-        "All notebooks for this project are available on GitHub and can be launched "
-        "directly in Google Colab. You do not need to run every notebook — see the "
-        "guidance below for what each one does."
+    hero(
+        "📓 Pipeline Notebooks",
+        "A simple guide to the full project workflow. Use B7 for flood results without retraining, and use the drought notebook for the SPI-3 LSTM pipeline.",
+        ["Google Colab", "GitHub", "B1–B7 flood workflow", "Drought LSTM notebook"]
     )
-    st.divider()
 
     REPO       = "https://github.com/ValenxiaA/kzn-flood-detection"
     COLAB_BASE = "https://colab.research.google.com/github/ValenxiaA/kzn-flood-detection/blob/main/notebooks/"
@@ -758,3 +934,4 @@ elif page == "📓  Pipeline Notebooks":
             st.divider()
 
     st.markdown(f"[View full repository on GitHub]({REPO})")
+

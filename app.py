@@ -8,12 +8,12 @@ import streamlit as st
 import torch
 import torch.nn as nn
 import numpy as np
-from PIL import Image
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 import matplotlib.patches as mpatches
+from sklearn.preprocessing import MinMaxScaler
 
 # =====================================================================
 # Page setup
@@ -24,20 +24,7 @@ st.set_page_config(
     layout="wide"
 )
 
-st.markdown("""
-<style>
-  .metric-box {
-    background: #f8f8f6;
-    border-radius: 8px;
-    padding: 14px 16px;
-    text-align: center;
-  }
-  .metric-label { font-size: 12px; color: #666; margin-bottom: 2px; }
-  .metric-value { font-size: 22px; font-weight: 600; color: #1a1a1a; }
-</style>
-""", unsafe_allow_html=True)
-
-# ── Sidebar navigation ──────────────────────────────────────────────
+# ── Sidebar ──────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("### Navigation")
     page = st.radio(
@@ -53,16 +40,12 @@ with st.sidebar:
         "Supervisor: Prof. I. Davidson  \n"
         "Co-supervisor: Dr. O.P. Babalola"
     )
-    st.markdown(
-        "[GitHub Repo](https://github.com/ValenxiaA/kzn-flood-detection)",
-        unsafe_allow_html=False
-    )
+    st.markdown("[GitHub Repo](https://github.com/ValenxiaA/kzn-flood-detection)")
 
 
-# ======================================================================
-# ── SHARED MODEL ARCHITECTURES ────────────────────────────────────────
-# ======================================================================
-
+# =====================================================================
+# Shared model architectures
+# =====================================================================
 class DoubleConv(nn.Module):
     def __init__(self, in_ch, out_ch):
         super().__init__()
@@ -124,39 +107,117 @@ class DroughtLSTM(nn.Module):
 
 
 # =====================================================================
-# ── FLOOD PAGE ────────────────────────────────────────────────────────
+# Data loaders (cached)
+# =====================================================================
+@st.cache_resource
+def load_flood_models():
+    device = torch.device('cpu')
+    fusion_model = optical_model = None
+    status = {"fusion": False, "optical": False}
+
+    if os.path.exists("models/fusion_unet_4tile_best.pt"):
+        fusion_model = UNet(in_channels=12)
+        fusion_model.load_state_dict(torch.load("models/fusion_unet_4tile_best.pt", map_location=device))
+        fusion_model.eval()
+        status["fusion"] = True
+
+    if os.path.exists("models/optical_unet_4tile_best.pt"):
+        optical_model = UNet(in_channels=9)
+        optical_model.load_state_dict(torch.load("models/optical_unet_4tile_best.pt", map_location=device))
+        optical_model.eval()
+        status["optical"] = True
+
+    return fusion_model, optical_model, status
+
+
+@st.cache_resource
+def load_drought_models():
+    device = torch.device('cpu')
+    models, status = {}, {}
+    for key in ['KZN', 'NC']:
+        path = f'models/lstm_{key}.pth'
+        if os.path.exists(path):
+            m = DroughtLSTM()
+            m.load_state_dict(torch.load(path, map_location=device))
+            m.eval()
+            models[key] = m
+            status[key] = True
+        else:
+            models[key] = None
+            status[key] = False
+    return models, status
+
+
+@st.cache_data
+def load_drought_data():
+    """Load CSVs, merge SPI-3 + NDVI anomaly, fit scaler on training portion."""
+    result = {}
+    for key in ['KZN', 'NC']:
+        spi_path  = f'data/drought/spi3_{key}.csv'
+        ndvi_path = f'data/drought/ndvi_anomaly_{key}.csv'
+
+        if not os.path.exists(spi_path) or not os.path.exists(ndvi_path):
+            result[key] = None
+            continue
+
+        spi  = pd.read_csv(spi_path,  parse_dates=['date'])
+        ndvi = pd.read_csv(ndvi_path, parse_dates=['date'])
+
+        spi['ym']  = spi['date'].dt.to_period('M')
+        ndvi['ym'] = ndvi['date'].dt.to_period('M')
+
+        merged = (
+            spi[['ym', 'date', 'spi3']]
+            .merge(ndvi[['ym', 'ndvi_anomaly']], on='ym')
+            .dropna()
+            .sort_values('date')
+            .reset_index(drop=True)
+        )
+
+        arr = merged[['spi3', 'ndvi_anomaly']].values.astype(np.float32)
+        n_train = int(len(arr) * 0.70)
+        scaler = MinMaxScaler()
+        scaler.fit(arr[:n_train])
+
+        result[key] = {
+            'df':     merged,
+            'arr':    arr,
+            'scaler': scaler,
+            'dates':  pd.to_datetime(merged['date']),
+        }
+    return result
+
+
+def spi_class(v):
+    if v >= 0:     return "Normal / Wet",    "#4393c3"
+    if v >= -1.0:  return "Mild drought",     "#fee090"
+    if v >= -1.5:  return "Moderate drought", "#fc8d59"
+    if v >= -2.0:  return "Severe drought",   "#d73027"
+    return "Extreme drought", "#7a0000"
+
+
+PROVINCE_LABELS = {'KZN': 'KwaZulu-Natal', 'NC': 'Northern Cape'}
+
+SPI_THRESHOLDS = [
+    (0.0,         float('inf'), 'Normal / Wet',     '#4393c3'),
+    (-1.0,        0.0,          'Mild drought',      '#fee090'),
+    (-1.5,       -1.0,          'Moderate drought',  '#fc8d59'),
+    (-2.0,       -1.5,          'Severe drought',    '#d73027'),
+    (float('-inf'), -2.0,       'Extreme drought',   '#7a0000'),
+]
+
+
+# =====================================================================
+# FLOOD PAGE
 # =====================================================================
 if page == "🌊  Flood Detection":
     st.title("🌊 Flood Detection — KwaZulu-Natal")
     st.markdown(
-        "**Multi-source deep learning flood detection for the April 2022 KwaZulu-Natal event.**  \n"
+        "Multi-source deep learning flood detection for the **April 2022 KwaZulu-Natal** flood event.  \n"
         "Fusion U-Net (12-channel SAR + optical) and optical-only U-Net (9-channel), evaluated on "
-        "2,897 held-out patches against UNOSAT FL20220418ZAF."
+        "**2,897 held-out test patches** against UNOSAT FL20220418ZAF."
     )
     st.divider()
-
-    # ── Load flood models ──────────────────────────────────────────
-    @st.cache_resource
-    def load_flood_models():
-        device = torch.device('cpu')
-        fusion_path  = "models/fusion_unet_4tile_best.pt"
-        optical_path = "models/optical_unet_4tile_best.pt"
-        status = {"fusion": False, "optical": False}
-        fusion_model = optical_model = None
-
-        if os.path.exists(fusion_path):
-            fusion_model = UNet(in_channels=12)
-            fusion_model.load_state_dict(torch.load(fusion_path, map_location=device))
-            fusion_model.eval()
-            status["fusion"] = True
-
-        if os.path.exists(optical_path):
-            optical_model = UNet(in_channels=9)
-            optical_model.load_state_dict(torch.load(optical_path, map_location=device))
-            optical_model.eval()
-            status["optical"] = True
-
-        return fusion_model, optical_model, status
 
     with st.spinner("Loading flood model weights..."):
         fusion_model, optical_model, flood_status = load_flood_models()
@@ -197,15 +258,15 @@ if page == "🌊  Flood Detection":
 
     st.caption(
         "Fusion (12-ch) outperformed optical-only (9-ch) on F1, Kappa, and AUC-ROC, confirming "
-        "that the Sentinel-1 SAR and SRTM elevation channels provided measurable benefit."
+        "that Sentinel-1 SAR and SRTM elevation channels provided measurable benefit."
     )
     st.divider()
 
     # ── Live inference ──────────────────────────────────────────────
     st.subheader("🧠 Run the Model Live")
     st.markdown(
-        "Select a test patch and run it through both models. This performs real inference "
-        "using the loaded checkpoint weights — not a saved image."
+        "Select a held-out test patch and run it through the trained models. "
+        "This performs real inference using the loaded checkpoint weights."
     )
 
     SAMPLE_DIR = "sample_patches/"
@@ -245,9 +306,8 @@ if page == "🌊  Flood Detection":
                         logits = fusion_model(torch.from_numpy(X).unsqueeze(0))
                         fusion_pred = torch.sigmoid(logits).numpy()[0, 0]
                 if flood_status["optical"]:
-                    X_opt = X[:9]
                     with torch.no_grad():
-                        logits = optical_model(torch.from_numpy(X_opt).unsqueeze(0))
+                        logits = optical_model(torch.from_numpy(X[:9]).unsqueeze(0))
                         optical_pred = torch.sigmoid(logits).numpy()[0, 0]
 
             def plot_mask(mask, title):
@@ -277,10 +337,9 @@ if page == "🌊  Flood Detection":
     # ── Zone figures ────────────────────────────────────────────────
     st.subheader("🗺️ Flood Zone Analysis")
     st.markdown(
-        "Spatial comparison at two representative locations: Durban Harbour (Zone 1) "
-        "and the uMngeni River corridor (Zone 2)."
+        "Spatial comparison at two representative locations: **Durban Harbour (Zone 1)** "
+        "and the **uMngeni River corridor (Zone 2)**."
     )
-    figure_dir = "figures/"
     figure_files = {
         "Zone 1": {
             "UNOSAT Ground Truth": "flood_area_9_03_ground_truth.png",
@@ -297,68 +356,52 @@ if page == "🌊  Flood Detection":
     zone_key = "Zone 1" if "Zone 1" in zone else "Zone 2"
     fcols = st.columns(3)
     for col, (label, fname) in zip(fcols, figure_files[zone_key].items()):
-        fpath = os.path.join(figure_dir, fname)
+        fpath = os.path.join("figures/", fname)
         with col:
             st.markdown(f"**{label}**")
             if os.path.exists(fpath):
                 st.image(fpath, use_container_width=True)
             else:
-                st.info(f"Upload `{fname}` to `{figure_dir}` to display")
+                st.info(f"Upload `{fname}` to `figures/` to display")
 
 
 # =====================================================================
-# ── DROUGHT PAGE ──────────────────────────────────────────────────────
+# DROUGHT PAGE
 # =====================================================================
 elif page == "🌵  Drought Prediction":
     st.title("🌵 Drought Prediction — LSTM SPI-3")
     st.markdown(
         "**Two-layer LSTM predicting SPI-3 one month ahead.**  \n"
         "Input: 12-month sequences of SPI-3 and MODIS NDVI anomaly.  \n"
-        "Study regions: KwaZulu-Natal and Northern Cape, 2000–2024 (CHIRPS + MODIS MOD13A3)."
+        "Study regions: **KwaZulu-Natal** and **Northern Cape**, 2000–2024 "
+        "(CHIRPS v2.0 rainfall + MODIS MOD13A3 NDVI)."
     )
     st.divider()
 
-    # ── Load drought models ────────────────────────────────────────
-    @st.cache_resource
-    def load_drought_models():
-        device = torch.device('cpu')
-        paths  = {
-            'KZN': 'models/lstm_KZN.pth',
-            'NC':  'models/lstm_NC.pth',
-        }
-        models = {}
-        status = {}
-        for key, path in paths.items():
-            if os.path.exists(path):
-                m = DroughtLSTM()
-                m.load_state_dict(torch.load(path, map_location=device))
-                m.eval()
-                models[key] = m
-                status[key] = True
-            else:
-                models[key] = None
-                status[key] = False
-        return models, status
-
-    with st.spinner("Loading drought model weights..."):
+    with st.spinner("Loading drought models and data..."):
         drought_models, drought_status = load_drought_models()
+        drought_data = load_drought_data()
 
     c1, c2 = st.columns(2)
-    labels = {'KZN': 'KwaZulu-Natal', 'NC': 'Northern Cape'}
     with c1:
         if drought_status['KZN']:
-            st.success("✅ KZN LSTM loaded — models/lstm_KZN.pth")
+            st.success("✅ KZN LSTM loaded")
         else:
             st.error("❌ KZN LSTM not found at models/lstm_KZN.pth")
     with c2:
         if drought_status['NC']:
-            st.success("✅ Northern Cape LSTM loaded — models/lstm_NC.pth")
+            st.success("✅ Northern Cape LSTM loaded")
         else:
             st.error("❌ NC LSTM not found at models/lstm_NC.pth")
 
+    data_ok = drought_data.get('KZN') is not None or drought_data.get('NC') is not None
+    if data_ok:
+        st.success("✅ Drought CSV data loaded from data/drought/")
+    else:
+        st.warning("CSV data not found in data/drought/ — upload the 8 CSV files to enable interactive features.")
+
     st.divider()
 
-    # ── Background ─────────────────────────────────────────────────
     with st.expander("ℹ️ About the drought model"):
         st.markdown("""
 **Data sources (open access)**
@@ -366,33 +409,27 @@ elif page == "🌵  Drought Prediction":
 - MODIS MOD13A3 — monthly 1 km NDVI (NASA via Google Earth Engine)
 
 **SPI-3 computation**
-The Standardised Precipitation Index at the 3-month scale (SPI-3) follows McKee et al. (1993).
-A gamma distribution is fitted to each calendar month separately to account for South Africa's
-strong seasonality. Drought severity thresholds follow WMO (2012):
+SPI-3 follows McKee et al. (1993). A gamma distribution is fitted per calendar month to
+account for South Africa's strong seasonality. WMO (2012) drought severity thresholds:
 
 | SPI-3 | Classification |
 |-------|---------------|
-| 0 to +inf | Normal / Wet |
+| ≥ 0 | Normal / Wet |
 | −1.0 to 0 | Mild drought |
 | −1.5 to −1.0 | Moderate drought |
 | −2.0 to −1.5 | Severe drought |
 | < −2.0 | Extreme drought |
 
 **LSTM architecture**
-Two-layer LSTM, hidden size 64, dropout 0.3. Input: 12-month window of [SPI-3, NDVI anomaly].
-Output: predicted SPI-3 for month 13. Trained with Adam (lr=1e-3), MSE loss, early stopping
-patience 15, ReduceLROnPlateau scheduler. Split chronologically 70/15/15.
+Two-layer LSTM, hidden size 64, dropout 0.3. Input window: 12 months of [SPI-3, NDVI anomaly].
+Output: predicted SPI-3 for month 13. Adam optimiser (lr=1e-3), MSE loss, early stopping
+patience 15, ReduceLROnPlateau scheduler. Chronological split 70 / 15 / 15.
         """)
 
     st.divider()
 
-    # ── Saved metrics ──────────────────────────────────────────────
+    # ── Metrics ────────────────────────────────────────────────────
     st.subheader("📊 Test Set Performance")
-    st.markdown(
-        "Metrics from the held-out test set (last 15% of the 2000–2024 sequence).  \n"
-        "Update these once your notebook has finished running."
-    )
-
     col_kzn, col_nc = st.columns(2)
     with col_kzn:
         st.markdown("**KwaZulu-Natal**")
@@ -404,126 +441,199 @@ patience 15, ReduceLROnPlateau scheduler. Split chronologically 70/15/15.
         st.metric("RMSE", "—")
         st.metric("R²", "—")
         st.metric("Pearson r", "—")
+    st.caption("Replace the — values with your notebook results once available.")
 
-    st.caption(
-        "Paste your values in the source code once available: search for `st.metric(\"RMSE\", \"—\")` etc."
-    )
     st.divider()
 
-    # ── Live inference ──────────────────────────────────────────────
-    st.subheader("🧠 Run the Drought Model Live")
+    # ── Interactive prediction ──────────────────────────────────────
+    st.subheader("🧠 Interactive Drought Prediction")
     st.markdown(
-        "Enter a 12-month sequence of SPI-3 and NDVI anomaly values to get the predicted "
-        "SPI-3 for the following month. Values must be in the same scale as the training data "
-        "(SPI-3 typically −3 to +3; NDVI anomaly typically −0.3 to +0.3)."
+        "Select a **province** and a **month** from the historical record. The app loads the "
+        "real preceding 12 months of SPI-3 and NDVI anomaly from your data, runs the LSTM, "
+        "and predicts the drought condition for the following month."
     )
 
-    province_choice = st.selectbox("Province:", ["KwaZulu-Natal (KZN)", "Northern Cape (NC)"])
-    prov_key = "KZN" if "KZN" in province_choice else "NC"
+    prov_choice = st.radio("Province:", ["KwaZulu-Natal (KZN)", "Northern Cape (NC)"], horizontal=True)
+    prov_key = "KZN" if "KZN" in prov_choice else "NC"
+    prov_data = drought_data.get(prov_key)
 
-    st.markdown("**Enter 12 months of input features:**")
-    st.caption("Month 1 = oldest, Month 12 = most recent")
+    if prov_data is None:
+        st.info("Upload the CSV files to data/drought/ to enable this section.")
+    else:
+        df   = prov_data['df']
+        arr  = prov_data['arr']
+        scaler = prov_data['scaler']
+        dates  = prov_data['dates']
 
-    col_a, col_b = st.columns(2)
+        # need at least 13 rows (12 input + 1 to predict)
+        min_idx = 12
+        max_idx = len(df) - 1
 
-    with col_a:
-        st.markdown("SPI-3 values (one per row):")
-        spi_default = "\n".join(["0.5", "0.3", "-0.2", "-0.8", "-1.1", "-0.9",
-                                   "-0.4", "0.1", "0.4", "0.6", "0.2", "-0.1"])
-        spi_input = st.text_area("SPI-3 (12 values)", value=spi_default, height=250, label_visibility="collapsed")
+        # date slider — pick the prediction target month
+        min_date = dates.iloc[min_idx].to_pydatetime()
+        max_date = dates.iloc[max_idx].to_pydatetime()
 
-    with col_b:
-        st.markdown("NDVI anomaly values (one per row):")
-        ndvi_default = "\n".join(["0.02", "0.01", "-0.01", "-0.04", "-0.06", "-0.05",
-                                    "-0.02", "0.01", "0.03", "0.04", "0.02", "0.00"])
-        ndvi_input = st.text_area("NDVI anomaly (12 values)", value=ndvi_default, height=250, label_visibility="collapsed")
+        selected_date = st.slider(
+            "Select prediction target month:",
+            min_value=min_date,
+            max_value=max_date,
+            value=pd.Timestamp('2016-04-01').to_pydatetime(),  # El Niño peak area
+            format="MMM YYYY"
+        )
 
-    if st.button("▶ Predict next month's SPI-3", type="primary"):
-        try:
-            spi_vals  = [float(v.strip()) for v in spi_input.strip().splitlines() if v.strip()]
-            ndvi_vals = [float(v.strip()) for v in ndvi_input.strip().splitlines() if v.strip()]
+        # find the closest index
+        target_idx = (dates - pd.Timestamp(selected_date)).abs().argmin()
+        target_idx = max(min_idx, min(target_idx, max_idx))
 
-            if len(spi_vals) != 12 or len(ndvi_vals) != 12:
-                st.error(f"Need exactly 12 values for each feature. Got SPI-3: {len(spi_vals)}, NDVI: {len(ndvi_vals)}.")
-            elif drought_models[prov_key] is None:
-                st.warning(
-                    f"Model weights for {labels[prov_key]} not loaded.  \n"
-                    f"Upload `models/lstm_{prov_key}.pth` to enable inference."
-                )
+        window_arr = arr[target_idx - 12 : target_idx]   # 12 months before target
+        window_df  = df.iloc[target_idx - 12 : target_idx]
+        actual_target = df.iloc[target_idx]['spi3'] if target_idx < len(df) else None
+
+        # show the input window
+        st.markdown(f"**Input window:** {dates.iloc[target_idx-12].strftime('%b %Y')} → {dates.iloc[target_idx-1].strftime('%b %Y')}")
+        st.markdown(f"**Predicting:** {dates.iloc[target_idx].strftime('%B %Y')}")
+
+        col_l, col_r = st.columns(2)
+        with col_l:
+            fig, ax = plt.subplots(figsize=(6, 3))
+            ax.bar(range(12), window_df['spi3'],
+                   color=['#4393c3' if v >= 0 else '#d73027' for v in window_df['spi3']],
+                   alpha=0.8)
+            ax.axhline(0,    color='black', linewidth=0.7)
+            ax.axhline(-1.0, color='#fee090', linewidth=0.8, linestyle='--', alpha=0.9)
+            ax.axhline(-1.5, color='#fc8d59', linewidth=0.8, linestyle='--', alpha=0.9)
+            ax.axhline(-2.0, color='#d73027', linewidth=0.8, linestyle='--', alpha=0.9)
+            ax.set_xticks(range(12))
+            ax.set_xticklabels(
+                [dates.iloc[target_idx-12+i].strftime('%b %y') for i in range(12)],
+                rotation=45, fontsize=7
+            )
+            ax.set_ylabel("SPI-3")
+            ax.set_title("Input window — SPI-3", fontsize=10)
+            ax.grid(axis='y', alpha=0.25)
+            plt.tight_layout()
+            st.pyplot(fig)
+
+        with col_r:
+            fig, ax = plt.subplots(figsize=(6, 3))
+            ax.plot(range(12), window_df['ndvi_anomaly'], 'o-', color='#3B6D11', linewidth=1.5)
+            ax.axhline(0, color='black', linewidth=0.7)
+            ax.set_xticks(range(12))
+            ax.set_xticklabels(
+                [dates.iloc[target_idx-12+i].strftime('%b %y') for i in range(12)],
+                rotation=45, fontsize=7
+            )
+            ax.set_ylabel("NDVI anomaly")
+            ax.set_title("Input window — NDVI anomaly", fontsize=10)
+            ax.grid(alpha=0.25)
+            plt.tight_layout()
+            st.pyplot(fig)
+
+        if st.button("▶ Predict drought condition", type="primary"):
+            if drought_models[prov_key] is None:
+                st.warning(f"Upload models/lstm_{prov_key}.pth to enable prediction.")
             else:
-                from sklearn.preprocessing import MinMaxScaler
-                import warnings
-                warnings.filterwarnings('ignore')
-
-                raw = np.array(list(zip(spi_vals, ndvi_vals)), dtype=np.float32)
-
-                # fit a scaler on the input window (approximation without training scaler)
-                scaler = MinMaxScaler()
-                raw_scaled = scaler.fit_transform(raw)
-
-                X_tensor = torch.tensor(raw_scaled, dtype=torch.float32).unsqueeze(0)  # (1, 12, 2)
+                scaled = scaler.transform(window_arr)
+                X_tensor = torch.tensor(scaled, dtype=torch.float32).unsqueeze(0)
 
                 with torch.no_grad():
                     pred_scaled = drought_models[prov_key](X_tensor).item()
 
-                # inverse the SPI channel only
-                dummy = np.array([[pred_scaled, 0.0]], dtype=np.float32)
+                dummy = np.zeros((1, 2), dtype=np.float32)
+                dummy[0, 0] = pred_scaled
                 pred_spi = scaler.inverse_transform(dummy)[0, 0]
-
-                def spi_class(v):
-                    if v >= 0:    return "Normal / Wet",     "#4393c3"
-                    if v >= -1.0: return "Mild drought",      "#fee090"
-                    if v >= -1.5: return "Moderate drought",  "#fc8d59"
-                    if v >= -2.0: return "Severe drought",    "#d73027"
-                    return "Extreme drought", "#7a0000"
 
                 label, color = spi_class(pred_spi)
 
-                st.success(f"**Predicted SPI-3 (next month): {pred_spi:.3f}**")
+                st.markdown("---")
+                r1, r2, r3 = st.columns(3)
+                with r1:
+                    st.metric("Predicted SPI-3", f"{pred_spi:.3f}")
+                with r2:
+                    if actual_target is not None:
+                        st.metric("Actual SPI-3", f"{actual_target:.3f}",
+                                  delta=f"{pred_spi - actual_target:+.3f} error")
+                with r3:
+                    actual_label, _ = spi_class(actual_target) if actual_target is not None else ("—", None)
+                    st.metric("Actual class", actual_label if actual_target is not None else "—")
+
                 st.markdown(
-                    f"<div style='background:{color}; color:#fff; padding:10px 16px; "
-                    f"border-radius:6px; font-weight:600; font-size:15px;'>"
-                    f"Classification: {label}</div>",
+                    f"<div style='background:{color}; color:#fff; padding:12px 18px; "
+                    f"border-radius:8px; font-weight:600; font-size:16px; margin:12px 0;'>"
+                    f"Predicted: {label} &nbsp;({dates.iloc[target_idx].strftime('%B %Y')})</div>",
                     unsafe_allow_html=True
                 )
-                st.caption(
-                    "⚠️ The scaler here is fitted on the 12-month input window rather than the full "
-                    "training set. For production use, save and load the MinMaxScaler from your notebook "
-                    "(`joblib.dump(scaler, 'models/scaler_KZN.joblib')`). The prediction direction "
-                    "is reliable; the absolute value may shift slightly without the training scaler."
-                )
 
-                # plot the input window + prediction
-                fig, ax = plt.subplots(figsize=(10, 3.5))
-                months_x = list(range(1, 13))
-                ax.plot(months_x, spi_vals, 'o-', color='steelblue', linewidth=1.5, label='Input SPI-3')
-                ax.axhline(0,    color='black',  linewidth=0.6, linestyle='-')
-                ax.axhline(-1.0, color='#fee090', linewidth=0.8, linestyle='--', alpha=0.8)
-                ax.axhline(-1.5, color='#fc8d59', linewidth=0.8, linestyle='--', alpha=0.8)
-                ax.axhline(-2.0, color='#d73027', linewidth=0.8, linestyle='--', alpha=0.8)
-                ax.scatter([13], [pred_spi], color=color, s=100, zorder=5, label=f'Predicted month 13: {pred_spi:.3f}')
-                ax.set_xticks(list(range(1, 14)))
-                ax.set_xticklabels([f"M{i}" for i in range(1, 13)] + ["Pred"], fontsize=9)
-                ax.set_ylabel("SPI-3")
-                ax.set_title(f"SPI-3 Input Window + Prediction — {labels[prov_key]}", fontsize=11)
-                ax.legend(fontsize=9)
-                ax.grid(True, alpha=0.25)
-                plt.tight_layout()
-                st.pyplot(fig)
+    st.divider()
 
-        except ValueError as e:
-            st.error(f"Could not parse input values: {e}")
+    # ── Full time series view ───────────────────────────────────────
+    st.subheader("📈 Historical SPI-3 Time Series")
+    st.markdown("Browse the full 2000–2024 drought record for either province.")
+
+    ts_prov = st.radio("Province:", ["KwaZulu-Natal (KZN)", "Northern Cape (NC)"],
+                       horizontal=True, key="ts_prov")
+    ts_key  = "KZN" if "KZN" in ts_prov else "NC"
+    ts_data = drought_data.get(ts_key)
+
+    if ts_data is None:
+        st.info("Upload CSV data to view this chart.")
+    else:
+        ts_df = ts_data['df']
+
+        year_range = st.slider(
+            "Year range:",
+            min_value=2000, max_value=2024,
+            value=(2000, 2024), step=1, key="year_slider"
+        )
+        mask = (ts_df['date'].dt.year >= year_range[0]) & (ts_df['date'].dt.year <= year_range[1])
+        plot_df = ts_df[mask]
+
+        fig, ax = plt.subplots(figsize=(12, 4))
+        colors = [
+            next(c for lo, hi, _, c in SPI_THRESHOLDS if lo <= v < hi)
+            for v in plot_df['spi3']
+        ]
+        ax.bar(plot_df['date'], plot_df['spi3'], color=colors, width=25, alpha=0.85)
+        ax.axhline(0,    color='black', linewidth=0.7)
+        ax.axhline(-1.0, color='#fee090', linewidth=0.8, linestyle='--', alpha=0.9, label='Mild (−1.0)')
+        ax.axhline(-1.5, color='#fc8d59', linewidth=0.8, linestyle='--', alpha=0.9, label='Moderate (−1.5)')
+        ax.axhline(-2.0, color='#d73027', linewidth=0.8, linestyle='--', alpha=0.9, label='Severe (−2.0)')
+
+        worst = plot_df.loc[plot_df['spi3'].idxmin()]
+        ax.annotate(
+            f"Worst: {worst['date'].strftime('%b %Y')}\nSPI = {worst['spi3']:.2f}",
+            xy=(worst['date'], worst['spi3']),
+            xytext=(worst['date'], worst['spi3'] - 0.5),
+            arrowprops=dict(arrowstyle='->', color='black', lw=0.8),
+            fontsize=8, ha='center'
+        )
+
+        handles = [mpatches.Patch(color=c, label=l) for _, _, l, c in SPI_THRESHOLDS]
+        ax.legend(handles=handles, loc='upper right', fontsize=7, ncol=2, framealpha=0.9)
+        ax.set_ylabel("SPI-3")
+        ax.set_title(f"SPI-3 — {PROVINCE_LABELS[ts_key]} ({year_range[0]}–{year_range[1]})", fontsize=11)
+        ax.grid(axis='y', alpha=0.2)
+        plt.tight_layout()
+        st.pyplot(fig)
+
+        n_mild    = (plot_df['spi3'] < -1.0).sum()
+        n_severe  = (plot_df['spi3'] < -1.5).sum()
+        n_extreme = (plot_df['spi3'] < -2.0).sum()
+        sc1, sc2, sc3 = st.columns(3)
+        sc1.metric("Mild drought months",    n_mild)
+        sc2.metric("Severe drought months",  n_severe)
+        sc3.metric("Extreme drought months", n_extreme)
 
     st.divider()
 
     # ── Saved result figures ────────────────────────────────────────
-    st.subheader("📈 Thesis Result Figures")
+    st.subheader("📊 Thesis Result Figures")
     drought_figs = {
-        "SPI-3 time series — KZN":          "figures/SPI3_timeseries_KZN.png",
-        "SPI-3 time series — Northern Cape": "figures/SPI3_timeseries_NC.png",
-        "LSTM training curves":              "figures/LSTM_training_curves.png",
-        "Predicted vs actual SPI-3":         "figures/LSTM_prediction_vs_actual.png",
-        "Scatter plot":                      "figures/LSTM_scatter.png",
+        "SPI-3 time series — KZN":           "figures/SPI3_timeseries_KZN.png",
+        "SPI-3 time series — Northern Cape":  "figures/SPI3_timeseries_NC.png",
+        "LSTM training curves":               "figures/LSTM_training_curves.png",
+        "Predicted vs actual SPI-3":          "figures/LSTM_prediction_vs_actual.png",
+        "Scatter plot":                       "figures/LSTM_scatter.png",
     }
     fig_choice = st.selectbox("Select figure:", list(drought_figs.keys()))
     fpath = drought_figs[fig_choice]
@@ -537,58 +647,114 @@ patience 15, ReduceLROnPlateau scheduler. Split chronologically 70/15/15.
 
 
 # =====================================================================
-# ── PIPELINE PAGE ─────────────────────────────────────────────────────
+# PIPELINE PAGE
 # =====================================================================
 elif page == "📓  Pipeline Notebooks":
-    st.title("📓 Full Pipeline")
+    st.title("📓 Pipeline Notebooks")
     st.markdown(
-        "All data acquisition, preprocessing, and training notebooks. Best run in "
-        "Google Colab with a GPU runtime (T4 or A100)."
+        "All notebooks for this project are available on GitHub and can be launched "
+        "directly in Google Colab. You do not need to run every notebook — see the "
+        "guidance below for what each one does."
     )
     st.divider()
 
-    REPO = "https://github.com/ValenxiaA/kzn-flood-detection"
+    REPO       = "https://github.com/ValenxiaA/kzn-flood-detection"
     COLAB_BASE = "https://colab.research.google.com/github/ValenxiaA/kzn-flood-detection/blob/main/notebooks/"
 
+    # ── Quick start callout ─────────────────────────────────────────
+    st.info(
+        "**Just want to explore results?**  \n"
+        "You do not need to re-run the full pipeline. Start with **B7** (flood results figures) "
+        "or the **Evaluation notebook** to load the trained model weights and reproduce all "
+        "metrics and visualisations directly — no retraining required."
+    )
+
     st.subheader("🌊 Flood Detection Pipeline")
+    st.markdown(
+        "The flood pipeline runs in order B1 → B7. Each notebook saves its outputs to Google Drive "
+        "so the next one can pick up from where it left off. **B6 requires a GPU runtime.**"
+    )
+
     flood_notebooks = [
-        ("B1 — Study area definition",         "B1_study_area_definition_final.ipynb",   "Tile selection from UNOSAT geometry"),
-        ("B2 — Data acquisition",              "B2_acquisition_final.ipynb",              "Sentinel-1 + Sentinel-2 GEE export"),
-        ("B3 — Mosaic assembly",               "B3_mosaic_final.ipynb",                   "Reprojection & mosaic (EPSG:32736)"),
-        ("B4 — Stack assembly",                "B4_stack_assembly_final.ipynb",            "12-channel raster stack"),
-        ("B5 — Patch extraction",              "B5_patch_extraction_final.ipynb",          "128×128 patch sampling with nodata filter"),
-        ("B6 — Model training ⚡ GPU",         "B6_model_trainingfinal.ipynb",             "U-Net training, fusion & optical configs"),
-        ("B7 — Results figures",               "B7_final_chapter4_figures_final.ipynb",    "Chapter 4 thesis figures"),
+        (
+            "B1 — Study area definition",
+            "B1_study_area_definition_final.ipynb",
+            "Defines the four KZN study tiles (36JTM, 36JUM, 36JTN, 36JUN) from UNOSAT flood geometry.",
+            False
+        ),
+        (
+            "B2 — Data acquisition",
+            "B2_acquisition_final.ipynb",
+            "Exports Sentinel-1 SAR and Sentinel-2 optical imagery from Google Earth Engine.",
+            False
+        ),
+        (
+            "B3 — Mosaic assembly",
+            "B3_mosaic_final.ipynb",
+            "Reprojects and mosaics tiles into a single EPSG:32736 raster per date.",
+            False
+        ),
+        (
+            "B4 — Stack assembly",
+            "B4_stack_assembly_final.ipynb",
+            "Assembles the 12-channel input stack (6 optical bands + NDVI/NDWI + VV/VH + zero + DEM).",
+            False
+        ),
+        (
+            "B5 — Patch extraction",
+            "B5_patch_extraction_final.ipynb",
+            "Extracts 128×128 training patches with nodata filtering. Saves train/val/test .npy files.",
+            False
+        ),
+        (
+            "B6 — Model training ⚡ GPU required",
+            "B6_model_trainingfinal.ipynb",
+            "Trains fusion (12-ch) and optical-only (9-ch) U-Nets. Saves best checkpoints to Drive.",
+            True
+        ),
+        (
+            "B7 — Results & evaluation",
+            "B7_final_chapter4_figures_final.ipynb",
+            "Loads trained weights and generates all Chapter 4 thesis figures. No retraining needed — start here to explore results.",
+            False
+        ),
     ]
 
-    for name, fname, desc in flood_notebooks:
-        c1, c2, c3 = st.columns([3, 1, 1])
-        with c1:
-            st.markdown(f"**{name}**  \n<small style='color:#666'>{desc}</small>", unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"[GitHub]({REPO}/blob/main/notebooks/{fname})")
-        with c3:
-            st.markdown(f"[Colab]({COLAB_BASE}{fname})")
-        st.divider()
+    for name, fname, desc, gpu in flood_notebooks:
+        with st.container():
+            ca, cb = st.columns([5, 1])
+            with ca:
+                badge = " 🟡 GPU" if gpu else ""
+                st.markdown(f"**{name}**{badge}")
+                st.caption(desc)
+            with cb:
+                st.markdown(f"[Open in Colab]({COLAB_BASE}{fname})")
+            st.divider()
 
     st.subheader("🌵 Drought Pipeline")
-    drought_notebooks = [
-        ("Drought — LSTM SPI-3 prediction", "KZN_NC_Drought_Thesis_Final.ipynb",
-         "CHIRPS + MODIS NDVI, SPI-3, two-layer LSTM, KZN & Northern Cape"),
-    ]
-    for name, fname, desc in drought_notebooks:
-        c1, c2, c3 = st.columns([3, 1, 1])
-        with c1:
-            st.markdown(f"**{name}**  \n<small style='color:#666'>{desc}</small>", unsafe_allow_html=True)
-        with c2:
-            st.markdown(f"[GitHub]({REPO}/blob/main/notebooks/{fname})")
-        with c3:
-            st.markdown(f"[Colab]({COLAB_BASE}{fname})")
-        st.divider()
-
-    st.info(
-        "Training notebooks (B6, Drought LSTM) require a GPU and will be very slow on Colab free tier. "
-        "Set runtime type to GPU before running."
+    st.markdown(
+        "The drought pipeline is self-contained in a single notebook. It downloads CHIRPS data, "
+        "extracts MODIS NDVI via GEE, computes SPI-3, trains the LSTM, and generates all figures."
     )
+
+    drought_nb = [
+        (
+            "Drought — LSTM SPI-3 prediction",
+            "KZN_NC_Drought_Thesis_Final.ipynb",
+            "Full pipeline: CHIRPS download, MODIS NDVI extraction, SPI-3 computation, LSTM training "
+            "and evaluation for KwaZulu-Natal and Northern Cape (2000–2024). GEE authentication required.",
+            False
+        ),
+    ]
+
+    for name, fname, desc, gpu in drought_nb:
+        with st.container():
+            ca, cb = st.columns([5, 1])
+            with ca:
+                st.markdown(f"**{name}**")
+                st.caption(desc)
+            with cb:
+                st.markdown(f"[Open in Colab]({COLAB_BASE}{fname})")
+            st.divider()
 
     st.markdown(f"[View full repository on GitHub]({REPO})")

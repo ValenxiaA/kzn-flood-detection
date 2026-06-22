@@ -41,10 +41,10 @@ anomaly, trained separately for KwaZulu-Natal and the Northern Cape over 2000–
 
 | Province | RMSE | R² | Pearson r |
 |---|---|---|---|
-| KwaZulu-Natal | — | — | — |
-| Northern Cape | — | — | — |
+| KwaZulu-Natal | 0.800 | 0.132 | 0.525 |
+| Northern Cape | 0.829| 0.389 | 0.750 |
 
-*Update once notebook results are available.*
+
 
 ---
 

@@ -1,0 +1,741 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Flood & Drought Detection — Valencia Marubini</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --navy: #0b1f3a;
+    --navy-2: #102c52;
+    --blue: #2563eb;
+    --cyan: #0ea5e9;
+    --teal: #0f766e;
+    --amber: #b45309;
+    --cream: #fff7ed;
+    --sand: #f8fafc;
+    --white: #ffffff;
+    --text: #172033;
+    --muted: #64748b;
+    --line: #dbe3ef;
+    --soft-blue: #eff6ff;
+    --soft-teal: #ecfdf5;
+    --soft-amber: #fffbeb;
+    --shadow: 0 18px 50px rgba(15, 23, 42, 0.10);
+    --shadow-soft: 0 10px 28px rgba(15, 23, 42, 0.07);
+    --radius-xl: 28px;
+    --radius-lg: 20px;
+    --radius-md: 14px;
+    --page-width: 1120px;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    margin: 0;
+    font-family: 'Inter', Arial, sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(14,165,233,0.18), transparent 35%),
+      radial-gradient(circle at top right, rgba(180,83,9,0.12), transparent 32%),
+      linear-gradient(180deg, #f8fbff 0%, #f8fafc 48%, #fff7ed 100%);
+    color: var(--text);
+    line-height: 1.65;
+  }
+
+  a { color: inherit; }
+
+  .page-shell {
+    width: min(var(--page-width), calc(100% - 32px));
+    margin: 0 auto;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    backdrop-filter: blur(16px);
+    background: rgba(255, 255, 255, 0.82);
+    border-bottom: 1px solid rgba(219, 227, 239, 0.85);
+  }
+
+  .nav {
+    min-height: 72px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 22px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+    font-weight: 800;
+    color: var(--navy);
+    white-space: nowrap;
+  }
+
+  .brand-mark {
+    width: 38px;
+    height: 38px;
+    border-radius: 12px;
+    display: grid;
+    place-items: center;
+    color: white;
+    background: linear-gradient(135deg, var(--blue), var(--teal));
+    box-shadow: 0 10px 22px rgba(37, 99, 235, 0.25);
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .nav-links a {
+    text-decoration: none;
+    color: var(--muted);
+    font-size: 0.88rem;
+    font-weight: 700;
+    padding: 9px 12px;
+    border-radius: 999px;
+  }
+
+  .nav-links a:hover,
+  .nav-links a:focus {
+    color: var(--navy);
+    background: var(--soft-blue);
+    outline: none;
+  }
+
+  .hero {
+    padding: 78px 0 44px;
+  }
+
+  .hero-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.12fr) minmax(320px, 0.88fr);
+    gap: 28px;
+    align-items: stretch;
+  }
+
+  .hero-card {
+    border-radius: var(--radius-xl);
+    padding: clamp(28px, 5vw, 56px);
+    color: white;
+    background:
+      linear-gradient(135deg, rgba(11,31,58,0.98), rgba(16,44,82,0.94)),
+      url("data:image/svg+xml,%3Csvg width='300' height='300' viewBox='0 0 300 300' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' stroke='%23ffffff' stroke-opacity='0.10'%3E%3Cpath d='M0 90 C60 35 110 145 170 90 S250 35 300 90'/%3E%3Cpath d='M0 150 C60 95 110 205 170 150 S250 95 300 150'/%3E%3Cpath d='M0 210 C60 155 110 265 170 210 S250 155 300 210'/%3E%3C/g%3E%3C/svg%3E");
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  .eyebrow {
+    margin: 0 0 18px;
+    color: #bae6fd;
+    font-weight: 800;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    font-size: 0.78rem;
+  }
+
+  h1 {
+    margin: 0;
+    max-width: 820px;
+    font-size: clamp(2rem, 5vw, 4.15rem);
+    line-height: 1.02;
+    letter-spacing: -0.055em;
+  }
+
+  .hero-card p {
+    max-width: 760px;
+    margin: 22px 0 0;
+    color: #dbeafe;
+    font-size: clamp(1rem, 1.7vw, 1.12rem);
+  }
+
+  .hero-actions,
+  .btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 28px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    min-height: 44px;
+    padding: 11px 18px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--white);
+    color: var(--navy);
+    text-decoration: none;
+    font-weight: 800;
+    font-size: 0.92rem;
+    transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+  }
+
+  .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .btn.primary {
+    background: linear-gradient(135deg, var(--cyan), var(--blue));
+    color: white;
+    border-color: transparent;
+  }
+
+  .btn.amber {
+    background: linear-gradient(135deg, #f59e0b, var(--amber));
+    color: white;
+    border-color: transparent;
+  }
+
+  .summary-panel {
+    border-radius: var(--radius-xl);
+    padding: 26px;
+    background: rgba(255,255,255,0.88);
+    border: 1px solid rgba(219, 227, 239, 0.9);
+    box-shadow: var(--shadow-soft);
+  }
+
+  .summary-panel h2 {
+    margin: 0 0 16px;
+    font-size: 1.15rem;
+    color: var(--navy);
+  }
+
+  .quick-facts {
+    display: grid;
+    gap: 12px;
+  }
+
+  .fact {
+    padding: 14px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    background: linear-gradient(180deg, #ffffff, #f8fafc);
+  }
+
+  .fact small {
+    display: block;
+    color: var(--muted);
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-size: 0.68rem;
+  }
+
+  .fact strong {
+    display: block;
+    margin-top: 4px;
+    color: var(--navy);
+    font-size: 1rem;
+  }
+
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 9px;
+    margin-top: 24px;
+  }
+
+  .tag {
+    display: inline-flex;
+    align-items: center;
+    min-height: 31px;
+    padding: 6px 12px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: #e0f2fe;
+    font-size: 0.8rem;
+    font-weight: 700;
+  }
+
+  main {
+    padding: 18px 0 84px;
+  }
+
+  .section-heading {
+    margin: 46px 0 16px;
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 18px;
+  }
+
+  .section-kicker {
+    margin: 0 0 6px;
+    color: var(--blue);
+    font-size: 0.78rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+  }
+
+  .section-heading h2 {
+    margin: 0;
+    color: var(--navy);
+    font-size: clamp(1.45rem, 2.8vw, 2.15rem);
+    letter-spacing: -0.035em;
+  }
+
+  .card {
+    background: rgba(255,255,255,0.94);
+    border: 1px solid rgba(219, 227, 239, 0.95);
+    border-radius: var(--radius-xl);
+    box-shadow: var(--shadow-soft);
+    padding: clamp(20px, 3.2vw, 34px);
+    overflow: hidden;
+  }
+
+  .card + .card { margin-top: 20px; }
+
+  .card-top {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+    margin-bottom: 18px;
+  }
+
+  .icon {
+    width: 54px;
+    height: 54px;
+    border-radius: 17px;
+    display: grid;
+    place-items: center;
+    font-size: 1.35rem;
+    flex: 0 0 auto;
+  }
+
+  .icon.flood { background: var(--soft-blue); color: var(--blue); }
+  .icon.drought { background: var(--soft-amber); color: var(--amber); }
+  .icon.pipeline { background: var(--soft-teal); color: var(--teal); }
+
+  .card-title {
+    margin: 0;
+    font-size: 1.25rem;
+    color: var(--navy);
+    letter-spacing: -0.02em;
+  }
+
+  .card-subtitle {
+    margin: 4px 0 0;
+    color: var(--muted);
+    font-size: 0.92rem;
+  }
+
+  .card-desc {
+    margin: 0 0 24px;
+    color: #475569;
+    max-width: 930px;
+  }
+
+  .model-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 0 0 16px;
+  }
+
+  .tab-btn {
+    border: 1px solid var(--line);
+    background: white;
+    color: var(--muted);
+    min-height: 40px;
+    padding: 8px 15px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-weight: 800;
+    font-family: inherit;
+  }
+
+  .tab-btn.active {
+    background: var(--navy);
+    color: white;
+    border-color: var(--navy);
+  }
+
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 14px;
+    margin: 0 0 24px;
+  }
+
+  .metric {
+    min-width: 0;
+    border-radius: var(--radius-lg);
+    padding: 18px;
+    border: 1px solid var(--line);
+    background: linear-gradient(180deg, #ffffff, #f8fbff);
+  }
+
+  .metric-label {
+    color: var(--muted);
+    font-size: 0.77rem;
+    font-weight: 900;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .metric-value {
+    margin-top: 6px;
+    color: var(--navy);
+    font-size: clamp(1.35rem, 2.5vw, 2rem);
+    line-height: 1;
+    font-weight: 900;
+    letter-spacing: -0.04em;
+  }
+
+  .drought-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+
+  .province-card {
+    min-width: 0;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    padding: 18px;
+    background: linear-gradient(180deg, #ffffff, #fffaf0);
+  }
+
+  .province-title {
+    color: var(--amber);
+    font-weight: 900;
+    margin-bottom: 12px;
+  }
+
+  .province-stat {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 10px 0;
+    border-top: 1px solid rgba(219, 227, 239, 0.85);
+    font-size: 0.94rem;
+  }
+
+  .province-stat-label { color: var(--muted); }
+  .province-stat-value { font-weight: 900; color: var(--navy); text-align: right; }
+
+  .start-here-box {
+    margin-bottom: 18px;
+    border-radius: var(--radius-lg);
+    padding: 18px 20px;
+    border: 1px solid #bfdbfe;
+    background: linear-gradient(135deg, #eff6ff, #ecfeff);
+    color: #1e3a8a;
+  }
+
+  .pipeline-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: grid;
+    gap: 12px;
+  }
+
+  .pipeline-list li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+    padding: 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-lg);
+    background: linear-gradient(180deg, #ffffff, #f8fafc);
+  }
+
+  .pipeline-name {
+    color: var(--navy);
+    font-weight: 900;
+    margin-bottom: 3px;
+  }
+
+  .pipeline-desc {
+    color: var(--muted);
+    font-size: 0.9rem;
+  }
+
+  .pipeline-links {
+    display: flex;
+    gap: 9px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+  }
+
+  .pipeline-links a {
+    text-decoration: none;
+    color: var(--blue);
+    background: var(--soft-blue);
+    border: 1px solid #bfdbfe;
+    border-radius: 999px;
+    padding: 7px 11px;
+    font-weight: 900;
+    font-size: 0.82rem;
+  }
+
+  .badge-gpu {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 7px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    background: #fef3c7;
+    color: #92400e;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    vertical-align: middle;
+  }
+
+  footer {
+    border-top: 1px solid rgba(219, 227, 239, 0.95);
+    background: rgba(255,255,255,0.78);
+    padding: 26px 0;
+    color: var(--muted);
+    font-size: 0.88rem;
+  }
+
+  .footer-inner {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+
+  @media (max-width: 900px) {
+    .hero { padding-top: 46px; }
+    .hero-grid { grid-template-columns: 1fr; }
+    .summary-panel { order: -1; }
+    .metrics-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 680px) {
+    .page-shell { width: min(100% - 24px, var(--page-width)); }
+    .nav { align-items: flex-start; flex-direction: column; padding: 14px 0; gap: 12px; }
+    .nav-links { width: 100%; justify-content: flex-start; gap: 6px; }
+    .nav-links a { padding: 7px 9px; font-size: 0.82rem; }
+    .hero { padding: 30px 0 22px; }
+    .hero-card { border-radius: 22px; }
+    .summary-panel { border-radius: 22px; }
+    .card-top { grid-template-columns: 1fr; }
+    .metrics-grid, .drought-metrics { grid-template-columns: 1fr; }
+    .pipeline-list li { grid-template-columns: 1fr; align-items: start; }
+    .pipeline-links { justify-content: flex-start; }
+    .btn { width: 100%; }
+    .section-heading { margin-top: 34px; }
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="page-shell nav">
+      <a class="brand" href="#top" aria-label="Back to top">
+        <span class="brand-mark">VD</span>
+        <span>Valencia Marubini</span>
+      </a>
+      <nav class="nav-links" aria-label="Main navigation">
+        <a href="#flood">Flood</a>
+        <a href="#drought">Drought</a>
+        <a href="#pipeline">Pipeline</a>
+        <a href="https://github.com/ValenxiaA/kzn-flood-detection" target="_blank" rel="noopener">GitHub</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="hero" id="top">
+    <div class="page-shell hero-grid">
+      <div class="hero-card">
+        <p class="eyebrow">MEng Thesis · CPUT / F'SATI · 2025–2026</p>
+        <h1>Flood & Drought Detection Using Deep Learning and Satellite Data</h1>
+        <p>A practical monitoring pipeline for South Africa using Sentinel-1 SAR, Sentinel-2 optical imagery, CHIRPS rainfall, MODIS NDVI, U-Net flood detection, and LSTM drought prediction.</p>
+        <div class="tags" aria-label="Project keywords">
+          <span class="tag">Sentinel-1 SAR</span>
+          <span class="tag">Sentinel-2 Optical</span>
+          <span class="tag">U-Net</span>
+          <span class="tag">LSTM</span>
+          <span class="tag">CHIRPS</span>
+          <span class="tag">MODIS NDVI</span>
+          <span class="tag">SPI-3</span>
+          <span class="tag">Google Earth Engine</span>
+        </div>
+        <div class="hero-actions">
+          <a class="btn primary" href="https://fzmgxujyvc9vzfbinq9r4i.streamlit.app" target="_blank" rel="noopener">▶ Live Dashboard</a>
+          <a class="btn" href="https://github.com/ValenxiaA/kzn-flood-detection" target="_blank" rel="noopener">📄 GitHub Repo</a>
+        </div>
+      </div>
+
+      <aside class="summary-panel" aria-label="Project summary">
+        <h2>Project Snapshot</h2>
+        <div class="quick-facts">
+          <div class="fact"><small>Study focus</small><strong>Flood detection + drought prediction</strong></div>
+          <div class="fact"><small>Flood event</small><strong>KwaZulu-Natal, April 2022</strong></div>
+          <div class="fact"><small>Drought provinces</small><strong>KZN + Northern Cape</strong></div>
+          <div class="fact"><small>Supervision</small><strong>Prof. I. Davidson · Dr. O.P. Babalola</strong></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <main class="page-shell">
+    <section id="flood" aria-labelledby="flood-title">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">Flood Detection</p>
+          <h2 id="flood-title">KwaZulu-Natal flood mapping</h2>
+        </div>
+      </div>
+
+      <article class="card">
+        <div class="card-top">
+          <div class="icon flood">🌊</div>
+          <div>
+            <h3 class="card-title">April 2022 Event — U-Net Classification</h3>
+            <p class="card-subtitle">Tiles 36JTM / 36JUM / 36JTN / 36JUN · 2,897 test patches · UNOSAT reference</p>
+          </div>
+        </div>
+        <p class="card-desc">A 12-channel fusion U-Net combines Sentinel-1 SAR, Sentinel-2 optical indices, and DEM information to detect flood extent. A 9-channel optical-only U-Net is included as a baseline to compare sensor contribution.</p>
+
+        <div class="model-tabs" role="tablist" aria-label="Flood model metrics">
+          <button class="tab-btn active" onclick="showModel('fusion', this)" type="button">Fusion U-Net · 12-channel</button>
+          <button class="tab-btn" onclick="showModel('optical', this)" type="button">Optical U-Net · 9-channel</button>
+        </div>
+
+        <div class="metrics-grid" aria-live="polite">
+          <div class="metric"><div class="metric-label">F1 score</div><div class="metric-value" id="m-f1">0.8443</div></div>
+          <div class="metric"><div class="metric-label">Kappa</div><div class="metric-value" id="m-kappa">0.8378</div></div>
+          <div class="metric"><div class="metric-label">AUC-ROC</div><div class="metric-value" id="m-auc">0.9900</div></div>
+          <div class="metric"><div class="metric-label">IoU</div><div class="metric-value" id="m-iou">0.7159</div></div>
+        </div>
+
+        <div class="btn-row">
+          <a class="btn primary" href="https://fzmgxujyvc9vzfbinq9r4i.streamlit.app" target="_blank" rel="noopener">▶ Live Dashboard</a>
+          <a class="btn" href="https://colab.research.google.com/github/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B7_final_chapter4_figures_final.ipynb" target="_blank" rel="noopener">📘 Results Notebook</a>
+          <a class="btn" href="https://github.com/ValenxiaA/kzn-flood-detection" target="_blank" rel="noopener">📄 GitHub</a>
+        </div>
+      </article>
+    </section>
+
+    <section id="drought" aria-labelledby="drought-title">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">Drought Prediction</p>
+          <h2 id="drought-title">SPI-3 forecasting with LSTM</h2>
+        </div>
+      </div>
+
+      <article class="card">
+        <div class="card-top">
+          <div class="icon drought">🌿</div>
+          <div>
+            <h3 class="card-title">KwaZulu-Natal and Northern Cape</h3>
+            <p class="card-subtitle">2000–2024 · CHIRPS rainfall + MODIS NDVI anomaly · 12-month input windows</p>
+          </div>
+        </div>
+        <p class="card-desc">A two-layer LSTM predicts SPI-3 one month ahead using a chronological 70/15/15 split. The model is trained separately for KwaZulu-Natal and the Northern Cape to support province-specific drought monitoring.</p>
+
+        <div class="drought-metrics">
+          <div class="province-card">
+            <div class="province-title">🌍 KwaZulu-Natal</div>
+            <div class="province-stat"><span class="province-stat-label">RMSE</span><span class="province-stat-value">0.800</span></div>
+            <div class="province-stat"><span class="province-stat-label">R²</span><span class="province-stat-value">0.132</span></div>
+            <div class="province-stat"><span class="province-stat-label">Pearson r</span><span class="province-stat-value">0.525</span></div>
+            <div class="province-stat"><span class="province-stat-label">Worst month</span><span class="province-stat-value">Jan 2016 · SPI −2.436</span></div>
+          </div>
+          <div class="province-card">
+            <div class="province-title">🌍 Northern Cape</div>
+            <div class="province-stat"><span class="province-stat-label">RMSE</span><span class="province-stat-value">0.829</span></div>
+            <div class="province-stat"><span class="province-stat-label">R²</span><span class="province-stat-value">0.389</span></div>
+            <div class="province-stat"><span class="province-stat-label">Pearson r</span><span class="province-stat-value">0.750</span></div>
+            <div class="province-stat"><span class="province-stat-label">Worst month</span><span class="province-stat-value">Sep 2017 · SPI −2.161</span></div>
+          </div>
+        </div>
+
+        <div class="btn-row">
+          <a class="btn primary" href="https://fzmgxujyvc9vzfbinq9r4i.streamlit.app" target="_blank" rel="noopener">▶ Live Dashboard</a>
+          <a class="btn amber" href="https://colab.research.google.com/github/ValenxiaA/kzn-flood-detection/blob/main/notebooks/KZN_NC_Drought_Thesis_Final.ipynb" target="_blank" rel="noopener">📘 Drought Notebook</a>
+        </div>
+      </article>
+    </section>
+
+    <section id="pipeline" aria-labelledby="pipeline-title">
+      <div class="section-heading">
+        <div>
+          <p class="section-kicker">Pipeline Notebooks</p>
+          <h2 id="pipeline-title">Clear reproduction pathway</h2>
+        </div>
+      </div>
+
+      <div class="start-here-box">
+        <strong>Start here:</strong> Open <strong>B7</strong> to load trained flood model weights and reproduce the final metrics and figures without retraining. The drought notebook runs independently.
+      </div>
+
+      <article class="card">
+        <div class="card-top">
+          <div class="icon pipeline">🛰️</div>
+          <div>
+            <h3 class="card-title">Flood and drought workflow</h3>
+            <p class="card-subtitle">B1–B7 · Google Colab · B6 requires GPU</p>
+          </div>
+        </div>
+
+        <ul class="pipeline-list">
+          <li><div><div class="pipeline-name">B1 · Study area definition</div><div class="pipeline-desc">Four KZN tiles derived from UNOSAT flood geometry.</div></div><div class="pipeline-links"><a href="https://github.com/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B1_study_area_definition_final.ipynb" target="_blank" rel="noopener">GitHub</a><a href="https://colab.research.google.com/github/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B1_study_area_definition_final.ipynb" target="_blank" rel="noopener">Colab</a></div></li>
+          <li><div><div class="pipeline-name">B2 · Data acquisition</div><div class="pipeline-desc">Sentinel-1 and Sentinel-2 export via Google Earth Engine.</div></div><div class="pipeline-links"><a href="https://github.com/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B2_acquisition_final.ipynb" target="_blank" rel="noopener">GitHub</a><a href="https://colab.research.google.com/github/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B2_acquisition_final.ipynb" target="_blank" rel="noopener">Colab</a></div></li>
+          <li><div><div class="pipeline-name">B3 · Mosaic assembly</div><div class="pipeline-desc">Reprojection and mosaic to EPSG:32736.</div></div><div class="pipeline-links"><a href="https://github.com/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B3_mosaic_final.ipynb" target="_blank" rel="noopener">GitHub</a><a href="https://colab.research.google.com/github/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B3_mosaic_final.ipynb" target="_blank" rel="noopener">Colab</a></div></li>
+          <li><div><div class="pipeline-name">B4 · Stack assembly</div><div class="pipeline-desc">12-channel input raster stack with optical, SAR, and DEM layers.</div></div><div class="pipeline-links"><a href="https://github.com/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B4_stack_assembly_final.ipynb" target="_blank" rel="noopener">GitHub</a><a href="https://colab.research.google.com/github/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B4_stack_assembly_final.ipynb" target="_blank" rel="noopener">Colab</a></div></li>
+          <li><div><div class="pipeline-name">B5 · Patch extraction</div><div class="pipeline-desc">128 × 128 patches with nodata filtering.</div></div><div class="pipeline-links"><a href="https://github.com/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B5_patch_extraction_final.ipynb" target="_blank" rel="noopener">GitHub</a><a href="https://colab.research.google.com/github/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B5_patch_extraction_final.ipynb" target="_blank" rel="noopener">Colab</a></div></li>
+          <li><div><div class="pipeline-name">B6 · Model training <span class="badge-gpu">GPU</span></div><div class="pipeline-desc">U-Net training for fusion and optical-only configurations.</div></div><div class="pipeline-links"><a href="https://github.com/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B6_model_trainingfinal.ipynb" target="_blank" rel="noopener">GitHub</a><a href="https://colab.research.google.com/github/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B6_model_trainingfinal.ipynb" target="_blank" rel="noopener">Colab</a></div></li>
+          <li><div><div class="pipeline-name">B7 · Results and evaluation</div><div class="pipeline-desc">Loads trained weights and reproduces final figures without retraining.</div></div><div class="pipeline-links"><a href="https://github.com/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B7_final_chapter4_figures_final.ipynb" target="_blank" rel="noopener">GitHub</a><a href="https://colab.research.google.com/github/ValenxiaA/kzn-flood-detection/blob/main/notebooks/B7_final_chapter4_figures_final.ipynb" target="_blank" rel="noopener">Colab</a></div></li>
+          <li><div><div class="pipeline-name">Drought · LSTM SPI-3 prediction</div><div class="pipeline-desc">CHIRPS, MODIS NDVI, SPI-3, and LSTM training for KZN and Northern Cape.</div></div><div class="pipeline-links"><a href="https://github.com/ValenxiaA/kzn-flood-detection/blob/main/notebooks/KZN_NC_Drought_Thesis_Final.ipynb" target="_blank" rel="noopener">GitHub</a><a href="https://colab.research.google.com/github/ValenxiaA/kzn-flood-detection/blob/main/notebooks/KZN_NC_Drought_Thesis_Final.ipynb" target="_blank" rel="noopener">Colab</a></div></li>
+        </ul>
+
+        <div class="btn-row">
+          <a class="btn" href="https://github.com/ValenxiaA/kzn-flood-detection" target="_blank" rel="noopener">📄 View full repository on GitHub</a>
+        </div>
+      </article>
+    </section>
+  </main>
+
+  <footer>
+    <div class="page-shell footer-inner">
+      <span>Athindothe Valencia Marubini · CPUT MEng 219160643 · 2025–2026</span>
+      <span>Supervisor: Prof. I. Davidson · Co-supervisor: Dr. O.P. Babalola</span>
+    </div>
+  </footer>
+
+<script>
+  const floodData = {
+    fusion:  { f1: '0.8443', kappa: '0.8378', auc: '0.9900', iou: '0.7159' },
+    optical: { f1: '0.8908', kappa: '0.8856', auc: '0.9852', iou: '0.8032' }
+  };
+
+  function showModel(model, btn) {
+    document.querySelectorAll('.tab-btn').forEach(button => button.classList.remove('active'));
+    btn.classList.add('active');
+    const data = floodData[model];
+    document.getElementById('m-f1').textContent = data.f1;
+    document.getElementById('m-kappa').textContent = data.kappa;
+    document.getElementById('m-auc').textContent = data.auc;
+    document.getElementById('m-iou').textContent = data.iou;
+  }
+</script>
+</body>
+</html>
